@@ -131,6 +131,18 @@ print("After context")
 # # lecz wciaz jest inna klasa, mogaca zawierac kolejne dzieci/metody. Ba funkcje nadpisujace znajdujace sie w parent.
 # 
 # Exercise 104
+class FinancialError(Exception):
+    pass
+
+class InsufficientFundsError(FinancialError):
+    pass
+
+class InvalidTransactionError(FinancialError):
+    pass
+
+class InvalidCurrencyError(InvalidTransactionError):
+    pass
+
 def __exit__(self, exc_type, exc_value, traceback):
     print("Exiting context")
 
