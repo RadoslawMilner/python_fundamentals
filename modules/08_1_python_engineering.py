@@ -271,6 +271,7 @@ def load_user_age(value):
         return int(value)
     except ValueError as error:
         raise InvalidTransactionError('Invalid user age') from error
+
 load_user_age('35')
 load_user_age('abc')
 # Traceback (most recent call last):
