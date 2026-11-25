@@ -90,3 +90,60 @@ Zaczynamy od mechanizmu, bez plików i bez contextlib.
   Z with Python zarządza cyklem życia zasobu zgodnie z protokołem context managera.
 
   To nie jest wyłącznie skrócenie składni. To standaryzacja zarządzania zasobami.
+
+# contextlib
+1. Dlaczego istnieje contextlib?
+Do tej pory implementowaliśmy context manager przez klasę i dwie metody:
+```python
+__enter__()
+__exit__()
+```
+
+To klasyczny sposób implementacji protokołu.
+
+Python oferuje jednak alternatywę: contextlib.
+
+Jest to standardowy moduł biblioteki Pythona zawierający narzędzia do tworzenia i zarządzania context managerami.
+
+Jednym z najważniejszych jest:
+```python
+from contextlib import contextmanager
+```
+
+Pozwala on tworzyć context managery przy użyciu funkcji i yield, zamiast ręcznego implementowania klasy.
+
+Zwróć uwagę na podobieństwo do generatorów, które poznaliśmy w Module 07.
+
+To nie jest przypadkowe. @contextmanager wykorzystuje mechanizm generatorów.
+
+2. Pierwszy przykład — teoria
+```python
+from contextlib import contextmanager
+
+@contextmanager
+
+def resource():
+    print("Entering context")
+    yield
+    print("Exiting context")
+```
+Użycie:
+```python
+with resource():
+    print("Inside context")
+```
+
+Wynik:
+```python
+Entering context
+Inside context
+Exiting context
+```
+
+Mechanizm:
+1. Kod przed yield wykonuje się przy wejściu do kontekstu.
+2. yield przekazuje kontrolę do bloku with.
+3. Po zakończeniu bloku wykonanie generatora jest wznawiane.
+4. Kod po yield wykonuje się przy opuszczaniu kontekstu.
+
+To bardzo podobne do __enter__() i __exit__(), ale implementowane inaczej.
