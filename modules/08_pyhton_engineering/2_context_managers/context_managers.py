@@ -48,7 +48,6 @@ class Resource:
         print(exc_value)
         print(traceback)
 
-
 resource = Resource()
 
 with resource as item:
@@ -59,7 +58,7 @@ print("After context")
 
 # Nie uruchomilem kodu
 
-# 101.1
+# 102.1
 # Entering context
 # Inside context
 # Exiting context
@@ -67,7 +66,7 @@ print("After context")
 # Invalid transaction
 # <traceback object>
 
-# 101.2
+# 102.2
 # Czy After context zostanie wykonane?
 # Nie.
 # Nie chodzi wyłącznie o to, że instrukcja znajduje się poza with.
@@ -80,12 +79,12 @@ print("After context")
 # 5. Python propaguje wyjątek dalej.
 # 6. Normalny przepływ programu zostaje przerwany.
 
-# 101.3
+# 102.3
 # exc_type - <class 'ValueError'> - Klasa wyjątku
 # exc_value - Invalid transaction - Instancja wyjątku
 # traceback - obiekt przechowujący informacje o stosie wywołań w momencie wystąpienia wyjątku. - Obiekt stosu wywołań
 
-# 101.4
+# 102.4
 # Python przekazuje informację o wyjątku do __exit__(), dając mu możliwość jego obsłużenia lub stłumienia.
 
 # Exercise 103 — Exception suppression
@@ -387,4 +386,434 @@ with connection() as conn:
 # Database connection
 # Disconnecting...
 
-# 110.2 what assign to 'conn'?
+# 110.2 what will be assign to 'conn'?
+# yield "Database connection" -> przekazuje tę wartość do zmiennej conn.
+# Czyli:
+# conn = "Database connection"
+
+# 103.3 yield vs return
+# Zwykły generator:
+def numbers():
+    yield 1
+    yield 2
+    yield 3
+
+# Po pierwszym yield generator nie kończy działania.
+# Zostaje zawieszony w aktualnym miejscu. Zachowuje swój stan lokalny i może wznowić wykonanie przez next().
+# W @contextmanager wykorzystujemy dokładnie tę właściwość.
+
+# Porównaj:
+# return
+def example():
+    print("Before")
+    return 10
+    print("After")  # unreachable
+
+# Funkcja kończy wykonanie.
+
+# yield
+def example():
+    print("Before")
+    yield 10
+    print("After")
+
+# Funkcja zawiesza wykonanie i może zostać wznowiona.
+
+# 110.4 — Co dzieje się po zakończeniu with?
+# Tutaj dochodzimy do najważniejszego mechanizmu.
+
+# Sekwencja:
+# 1. Python rozpoczyna wykonywanie generatora.
+# 2. Generator wykonuje print("Connecting...").
+# 3. Generator dociera do yield.
+# 4. Zwraca "Database connection" do zmiennej conn.
+# 5. Wykonywany jest blok with.
+# 6. Po opuszczeniu bloku Python wznawia generator.
+# 7. Generator wykonuje print("Disconnecting...").
+# 8. Generator kończy działanie.
+# To właśnie stanowi podstawę @contextmanager.
+
+# Exercise 111 — Generator state and context managers
+from contextlib import contextmanager
+
+@contextmanager
+def transaction():
+    print("BEGIN")
+
+    yield "transaction_id_123"
+
+    print("COMMIT")
+
+
+with transaction() as tx:
+    print(f"Processing {tx}")
+
+print("Finished")
+
+# nie uruchomilem kodu
+
+# 111.1 Przewidź dokładny output.
+# BEGIN
+# Processing transaction_id_123"
+# COMMIT
+# Finished
+
+# 111.2 W którym momencie generator zostaje zawieszony?
+# Po zwroceniu "transaction_id_123" do tx
+
+# 111.3 Kto wznawia jego wykonanie?
+# Zakończenie bloku with powoduje, że context manager wznawia generator.
+# Technicznie robi to mechanizm contextlib, który zarządza iteracją generatora.
+
+# 111.4 Czy COMMIT wykona się, jeżeli wewnątrz with wystąpi ValueError?
+
+# Jeżeli wewnątrz bloku wystąpi nieobsłużony wyjątek, contextlib wznowi generator, przekazując mu ten wyjątek w miejscu yield.
+# Czyli nasz generator:
+@contextmanager
+def transaction():
+    print("BEGIN")
+
+    yield "transaction_id_123"
+
+    print("COMMIT")
+
+# zachowuje się tak, jakby wyjątek został zgłoszony bezpośrednio w miejscu yield.
+
+# W konsekwencji:
+# - generator zostaje wznowiony;
+# - wyjątek zostaje zgłoszony w miejscu yield;
+# - instrukcja print("COMMIT") nie zostaje wykonana;
+# - wyjątek propaguje dalej.
+
+# 111.5 Czy ten context manager samodzielnie obsługuje wyjątki?
+# Generator otrzymuje wyjątek w miejscu yield, ale sam z siebie go nie obsługuje.
+# Może natomiast użyć:
+# - try/except — obsługa wyjątku;
+# - finally — gwarantowane wykonanie cleanup;
+# - raise — ponowna propagacja wyjątku.
+
+# Exercise 112 — Exception injection into generator
+from contextlib import contextmanager
+
+@contextmanager
+def transaction():
+    print("BEGIN")
+
+    try:
+        yield "transaction_id_123"
+        print("COMMIT")
+
+    except ValueError:
+        print("ROLLBACK")
+
+
+with transaction() as tx:
+    print(f"Processing {tx}")
+    raise ValueError("Invalid transaction")
+
+print("Finished")
+
+# nie uruchomilem kodu
+
+# 112.1 predict output:
+# BEGIN
+# Processing transaction_id_123
+# ROLLBACK
+# Finished
+
+# 112.2 W którym miejscu generator otrzymuje ValueError?
+# Przebieg:
+# 1. Generator wykonuje się do yield.
+# 2. Zwraca wartość do tx.
+# 3. Generator zostaje zawieszony.
+# 4. Blok with wykonuje operacje.
+# 5. Występuje ValueError.
+# 6. contextlib wznawia generator, wstrzykując wyjątek w miejscu yield.
+# Technicznie odbywa się to przy użyciu metody generatora throw().
+
+# To bardzo istotna różnica: generator nie tylko jest wznawiany. Jest wznawiany z wyjątkiem.
+
+# 112.3
+# Ponieważ wyjątek zostaje przechwycony przez except ValueError.
+# Ważne: instrukcja:
+print("COMMIT")
+# nie zostanie wykonana.
+# Wyjątek przerywa normalny przepływ w bloku try i sterowanie przechodzi do except.
+
+# 112.4 Czy wyjątek zostanie propagowany poza with?
+# Nie.
+# Po wykonaniu:
+# except ValueError:
+    # print("ROLLBACK")
+# generator kończy działanie normalnie.
+# contextlib rozpoznaje, że generator obsłużył wyjątek i zakończył się bez ponownego zgłoszenia go.
+# W rezultacie wyjątek zostaje stłumiony.
+# Dlatego wykonuje się:
+print("Finished")
+
+
+# 112.5 Zamiana except ValueError na except TypeError
+# TypeError nie przechwyci ValueError.
+
+# W konsekwencji:
+# - generator zostaje wznowiony z ValueError;
+# - except TypeError nie pasuje;
+# - generator przerywa wykonanie;
+# - contextlib propaguje wyjątek;
+# - Finished nie zostanie wykonane.
+
+# BEGIN
+# Processing transaction_id_123
+# Traceback (most recent call last):
+  # ...
+# ValueError: Invalid transaction
+
+# Exercise 113 - uzupełnienie poniższej implementacji:
+from contextlib import contextmanager
+
+@contextmanager
+def transaction():
+    print("BEGIN")
+
+    try:
+        yield "transaction_id_123"
+
+    except ValueError:
+        print("ROLLBACK")
+        raise
+
+    else:
+        print("COMMIT")
+
+    finally:
+        print("Finished")
+
+with transaction() as tx:
+    print(f"Processing {tx}")
+    raise ValueError("Invalid transaction")
+
+# output: 
+# BEGIN
+# Processing transaction_id_123
+# ROLLBACK
+# Finished
+# Traceback (most recent call last):
+#   File "<python-input-22>", line 3, in <module>
+#     raise ValueError("Invalid transaction")
+# ValueError: Invalid transaction
+
+# Exercise 114 — Execution order
+# Przeanalizuj:
+class Database:
+    def __enter__(self):
+        print("Opening database")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Closing database")
+
+
+class APIConnection:
+    def __enter__(self):
+        print("Connecting to API")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Disconnecting from API")
+
+class Cache:
+    def __enter__(self):
+        print("Opening cache")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Closing cache")
+
+from contextlib import ExitStack
+
+with ExitStack() as stack:
+    db = stack.enter_context(Database())
+    api = stack.enter_context(APIConnection())
+
+    print("Processing data")
+
+    cache = stack.enter_context(Cache())
+    print("Updating cache")
+
+# predicted output:
+
+# Opening database
+# Connecting to API
+# Processing data
+# Opening cache
+# Updating cache
+# Closing cache
+# Disconnecting from API
+# Closing database
+
+# odpalilem w terminalu - ten sam result. nice! super.
+
+# Exercise 115 — Dynamic resource management
+class DataSource:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        print(f"Connecting to {self.name}")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(f"Disconnecting from {self.name}")
+
+    def fetch(self):
+        print(f"Fetching from {self.name}")
+
+from contextlib import ExitStack
+
+sources = ["exchange_api", "inflation_api", "bank_api"]
+connections = []
+
+with ExitStack() as stack:
+    # ExitStack rejestruje metodę __exit__() danego obiektu.
+    for source in sources:
+        ds = DataSource(source)
+        connection = stack.enter_context(ds) # wywołuje ds.__enter__().
+        # Zwrócona wartość trafia do connection.
+        connections.append(connection)
+        # connections przechowuje uzyskane instancje.
+
+    for connection in connections:
+        connection.fetch()
+# Po zakończeniu bloku with ExitStack wywołuje zarejestrowane metody __exit__() w kolejności LIFO.
+
+# output:
+# Connecting to exchange_api
+# Connecting to inflation_api
+# Connecting to bank_api
+# Fetching from exchange_api
+# Fetching from inflation_api
+# Fetching from bank_api
+# Disconnecting from bank_api
+# Disconnecting from inflation_api
+# Disconnecting from exchange_api
+
+# Exercise 116 - Conditional resource acquisition
+sources = {
+    "exchange_api": True,
+    "inflation_api": False,
+    "bank_api": True
+}
+with ExitStack() as stack:
+    connections = []
+
+    for key, value in sources.items():
+        if value:
+            ds = DataSource(key)
+            connection = stack.enter_context(ds)
+            connections.append(connection)
+
+    for connection in connections:
+        connection.fetch()
+
+# Connecting to exchange_api
+# Connecting to bank_api
+# Fetching from exchange_api
+# Fetching from bank_api
+# Disconnecting from bank_api
+# Disconnecting from exchange_api
+
+# ExitStack jest nie tyle wygodniejszy w tym przypadku co wrecz dowozi to, do czego/dlaczego zostal stworzony:
+# - dynamiczna liczba zasobów. przeciez mozna modyfikowac liste/dictionary
+# - zasoby są dodawane warunkowo - dokładnie.
+# - zarządzamy wieloma zasobami w jednym miejscu. ponownie, nic dodac.
+
+# Exercise 117 - Exception during resource acquisition
+class DataSource:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        print(f"Connecting to {self.name}")
+
+        if self.name == "bank_api":
+            raise ConnectionError("Bank API unavailable")
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(f"Disconnecting from {self.name}")
+
+    def fetch(self):
+        print(f"Fetching from {self.name}")
+
+from contextlib import ExitStack
+
+sources = [
+    "exchange_api",
+    "inflation_api",
+    "bank_api"
+]
+
+with ExitStack() as stack:
+    connections = []
+
+    for source in sources:
+        ds = DataSource(source)
+        connection = stack.enter_context(ds)
+        connections.append(connection)
+
+    for connection in connections:
+        connection.fetch()
+
+# predicted outcome:
+# Connecting to exchange_api
+# Connecting to inflation_api
+# Connecting to bank_api
+# ConnectionError: "Bank API unavailable"
+# Fetching from exchange_api
+# Fetching from bank_api
+# Disconnecting from bank_api
+# Disconnecting from inflation_api
+# Disconnecting from exchange_api
+# opusci ConnectionError
+
+# which is wrong
+
+# correct one:
+# Connecting to exchange_api
+# Connecting to inflation_api
+# Connecting to bank_api
+# Disconnecting from inflation_api
+# Disconnecting from exchange_api
+# Traceback (most recent call last): ConnectionError: Bank API unavailable
+
+# Dlaczego bank_api.__exit__() nie zostaje wykonane?
+
+# 2xIMPORTANT !!!!!!!!
+# ExitStack.enter_context() rejestruje metodę __exit__() dopiero po pomyślnym zakończeniu __enter__().
+
+# bank_api.__enter__() nie kończy się poprawnie.
+# W konsekwencji bank_api.__exit__() nie zostaje zarejestrowane w ExitStack.
+# Natomiast dwa poprzednie zasoby zostały poprawnie zarejestrowane.
+# To właśnie dlatego zostają zamknięte.
+
+# 2xIMPORTANT !!!!!!!!
+
+# 1. Wyjątek przerywa wykonywanie bloku with.
+# 2. Python wywołuje ExitStack.__exit__().
+# 3. ExitStack przechodzi przez zarejestrowane callbacki w kolejności LIFO.
+# 4. Wywołuje inflation_api.__exit__().
+# 5. Wywołuje exchange_api.__exit__().
+# 6. Nieobsłużony ConnectionError propaguje dalej.
+# To ważne rozróżnienie: cleanup nie wymaga wcześniejszego przechwycenia wyjątku.
+
+
+# - bank_api.__enter__() zgłasza ConnectionError;
+# - inflation_api.__exit__() zgłasza RuntimeError;
+# - exchange_api.__exit__() wykonuje się normalnie.
+# ExitStack nadal będzie próbował wykonać pozostałe callbacki.
+
+# Jednak wyjątek powstały podczas cleanup może zmienić końcowy wyjątek propagowany przez stos.
+
+# Warto to zapamiętać przy projektowaniu niezawodnych systemów.
+
