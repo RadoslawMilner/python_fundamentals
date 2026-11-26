@@ -1,149 +1,203 @@
-## Module 08 — Python Engineering
+## Module 08.2 — Context Managers: Managing multiple resources
 
-Zaczynamy od mechanizmu, bez plików i bez contextlib.
+Przechodzimy do kolejnego zagadnienia: zarządzania wieloma zasobami.
 
-## 1. Czym jest Context Manager?
-  Context manager to obiekt, który zarządza wejściem i wyjściem z określonego kontekstu wykonania.
-
-  Jego głównym zadaniem jest zagwarantowanie wykonania określonych operacji:
-    - przed rozpoczęciem pracy w danym kontekście;
-    - po zakończeniu pracy w danym kontekście;
-    - również wtedy, gdy podczas wykonywania kodu wystąpi wyjątek.
-
-  Przykładowe zastosowania:
-
-  | Zasób / operacja | Co zarządzamy? |
-  | - | - |
-  | File | Otwarcie i zamknięcie pliku |
-  | Database connection | Otwarcie i zamknięcie połączenia |
-  | Database transaction | Commit lub rollback |
-  | Lock | Acquire i release |
-  | Temporary resources | Utworzenie i sprzątanie |
-
-  Kluczowa koncepcja: resource lifecycle management.
-
-## 2. Instrukcja with
-  Prawdopodobnie kojarzysz już składnię:
-  ```python
-  with open("data.txt") as file:    content = file.read()
-  ```
-
-  Ale na razie interesuje nas mechanizm, nie pliki.
-
-  Instrukcja with korzysta z protokołu context managera.
-
-  Obiekt musi implementować dwie metody:
-  __enter__()__exit__()
-
-  Ich odpowiedzialności:
-
-  __enter__()
-    - Uruchamiana przy wejściu do kontekstu.
-    - Przygotowuje zasób.
-    - Jej wartość zwracana jest przypisywana do zmiennej po as.
-
-  __exit__()
-    - Uruchamiana przy opuszczaniu kontekstu.
-    - Odpowiada za sprzątanie.
-    - Wykonywana również wtedy, gdy wewnątrz with wystąpi wyjątek.
-
-## 3. Co właściwie robi Python?
-  Rozważmy taki przykład:
-
-  ```python
-  with resource as item: process(item)
-  ```
-
-  W uproszczeniu Python wykonuje następującą sekwencję:
-  1. Wywołuje resource.__enter__().
-  2. Przypisuje zwróconą wartość do item.
-  3. Wykonuje blok with.
-  4. Wywołuje resource.__exit__() przy opuszczaniu bloku.
-
-  Ważny szczegół: __exit__() otrzymuje informacje o wyjątku, jeżeli taki wystąpił.
-
-  Jego sygnatura:
-  ```python
-  __exit__(self, exc_type, exc_value, traceback)
-  ```
-
-  Parametry:
-  | Parametr | Znaczenie |
-  | - | - |
-  | exc_type | Klasa wyjątku |
-  | exc_value |	Instancja wyjątku |
-  | traceback |	Informacje o miejscu wystąpienia wyjątku |
-
-  Jeżeli wyjątek nie wystąpił, wszystkie trzy wartości są None.
-
-  Istotna właściwość: __exit__() może zdecydować, czy wyjątek zostanie dalej propagowany.
-    - Zwraca False lub None → wyjątek jest propagowany.
-    - Zwraca True → wyjątek zostaje stłumiony (suppressed).
-
-  To bardzo ważny mechanizm. Context manager nie tylko sprząta zasoby. Może również uczestniczyć w obsłudze wyjątków.
-
-## 4. Ręczne zarządzanie vs with
-  Wyobraź sobie, że musisz przygotować zasób, wykonać operację i zagwarantować jego zwolnienie.
-
-  Bez context managera musisz samodzielnie zadbać o odpowiednią strukturę try/finally.
-
-  Z with Python zarządza cyklem życia zasobu zgodnie z protokołem context managera.
-
-  To nie jest wyłącznie skrócenie składni. To standaryzacja zarządzania zasobami.
-
-# contextlib
-1. Dlaczego istnieje contextlib?
-Do tej pory implementowaliśmy context manager przez klasę i dwie metody:
+Do tej pory zarządzaliśmy jednym zasobem:
 ```python
-__enter__()
-__exit__()
+with Connection() as connection:
+    connection.fetch_data()
 ```
 
-To klasyczny sposób implementacji protokołu.
+W rzeczywistych systemach często potrzebujemy kilku zasobów jednocześnie.
 
-Python oferuje jednak alternatywę: contextlib.
+Przykładowo Financial Data Platform może korzystać z:
+- połączenia z PostgreSQL;
+- pliku z danymi wejściowymi;
+- połączenia HTTP z API.
+Każdy z tych zasobów ma własny lifecycle.
 
-Jest to standardowy moduł biblioteki Pythona zawierający narzędzia do tworzenia i zarządzania context managerami.
+1. Problem — nested context managers
+Rozważmy dwie klasy:
 
-Jednym z najważniejszych jest:
 ```python
-from contextlib import contextmanager
+class Database:
+    def __enter__(self):
+        print("Opening database")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Closing database")
+
+
+class APIConnection:
+    def __enter__(self):
+        print("Connecting to API")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("Disconnecting from API")
 ```
 
-Pozwala on tworzyć context managery przy użyciu funkcji i yield, zamiast ręcznego implementowania klasy.
+Możemy używać ich zagnieżdżając instrukcje `with`:
 
-Zwróć uwagę na podobieństwo do generatorów, które poznaliśmy w Module 07.
-
-To nie jest przypadkowe. @contextmanager wykorzystuje mechanizm generatorów.
-
-2. Pierwszy przykład — teoria
 ```python
-from contextlib import contextmanager
-
-@contextmanager
-
-def resource():
-    print("Entering context")
-    yield
-    print("Exiting context")
-```
-Użycie:
-```python
-with resource():
-    print("Inside context")
+with Database() as db:
+    with APIConnection() as api:
+        print("Fetching exchange rates")
 ```
 
-Wynik:
-```python
-Entering context
-Inside context
-Exiting context
+Output:
+```
+Opening database
+Connecting to API
+Fetching exchange rates
+Disconnecting from API
+Closing database
 ```
 
-Mechanizm:
-1. Kod przed yield wykonuje się przy wejściu do kontekstu.
-2. yield przekazuje kontrolę do bloku with.
-3. Po zakończeniu bloku wykonanie generatora jest wznawiane.
-4. Kod po yield wykonuje się przy opuszczaniu kontekstu.
+Ważna zasada: LIFO
+Zasoby są zwalniane w odwrotnej kolejności do kolejności ich pozyskiwania.
 
-To bardzo podobne do __enter__() i __exit__(), ale implementowane inaczej.
+LIFO = Last In, First Out.
+Lifecycle
+  1. Acquire Database
+    Pierwszy otwarty zasób
+
+  2. Acquire API
+    Drugi otwarty zasób
+
+  3. Release API
+    Pierwszy zamknięty zasób
+
+  4. Release Database
+    Ostatni zamknięty zasób
+
+Dlaczego?
+
+Ponieważ drugi zasób może zależeć od pierwszego. Zamknięcie zasobów w odwrotnej kolejności pozwala zachować poprawny lifecycle.
+
+2. `contextlib.ExitStack`
+Python oferuje narzędzie, które upraszcza zarządzanie wieloma context managerami:
+
+```python
+from contextlib import ExitStack
+```
+
+Przykład:
+```python
+with ExitStack() as stack:
+    db = stack.enter_context(Database())
+    api = stack.enter_context(APIConnection())
+
+    print("Fetching exchange rates")
+```
+
+Output będzie taki sam jak przy zagnieżdżonych `with`.
+
+`ExitStack` pozwala dynamicznie dodawać context managery do jednego kontekstu.
+
+Jego główne zastosowania:
+- liczba zasobów nie jest znana z góry;
+- zasoby są dodawane warunkowo;
+- zarządzamy wieloma zasobami w jednym miejscu;
+- potrzebujemy kontrolować kolejność ich zwalniania.
+Nie musimy jeszcze znać wszystkich metod `ExitStack`. Na razie skupiamy się na lifecycle.
+
+3. Dlaczego LIFO?
+To klasyczny mechanizm stosu:
+- push — dodawanie zasobu;
+- pop — zdejmowanie zasobu;
+- LIFO — ostatni dodany jest pierwszym usuwanym.
+Jest jeszcze jedna ważna konsekwencja.
+
+Załóżmy zależność:
+```
+Database
+  └── Transaction
+        └── Cursor
+```
+
+Nie możemy bezpiecznie zamknąć Database, kiedy Transaction i Cursor nadal korzystają z tego zasobu.
+
+LIFO naturalnie wspiera taki model zależności.
+
+4. Exceptions i ExitStack
+Dobrze zauważyłeś, że callbacki mogą wykonywać operacje związane z obsługą wyjątków.
+
+ExitStack nie jest jednak wyłącznie mechanizmem sprzątania.
+
+Kolejne metody `__exit__()` mogą:
+- otrzymywać informacje o wyjątku;
+- tłumić wyjątki;
+- propagować wyjątki;
+- wpływać na informacje przekazywane kolejnym metodom `__exit__()`.
+To zachowuje semantykę zagnieżdżonych instrukcji `with`.
+
+5. Czy można używać ExitStack dla jednego zasobu?
+Tak.
+```python
+with ExitStack() as stack:
+    db = stack.enter_context(Database())
+    db.fetch_data()
+```
+
+Technicznie jest to poprawne.
+Jednak dla jednego znanego zasobu zwykle preferujemy:
+```python
+with Database() as db:
+    db.fetch_data()
+```
+
+Dlaczego?
+
+| Kryterium	| `with` | `ExitStack` |
+| - | - | - |
+| Jeden znany zasób |	Prostszy |	Więcej abstrakcji |
+| Kilka znanych zasobów	| Bardzo dobry |	Dobry |
+| Dynamiczna liczba zasobów |	Ograniczony |	Bardzo dobry |
+| Warunkowe dodawanie zasobów	| Mniej wygodny |	Bardzo dobry |
+| Czytelność	| Prosta struktura	| Elastyczne zarządzanie |
+
+Nie chodzi przede wszystkim o wydajność.
+
+Chodzi o odpowiedni poziom abstrakcji.
+
+Zasada projektowa: nie używamy bardziej rozbudowanego narzędzia, jeżeli prostsza konstrukcja rozwiązuje problem równie dobrze.
+
+6. Dwa poziomy zarządzania
+Mamy:
+- `ExitStack.__exit__()` — zarządza całym stosem zasobów.
+- `DataSource.__exit__()` — zarządza pojedynczym zasobem.
+To nie są te same metody.
+
+```python
+with ExitStack() as stack:
+    db = stack.enter_context(Database())
+    api = stack.enter_context(APIConnection())
+    bank = stack.enter_context(DataSource("bank_api"))
+```
+
+Załóżmy, że `bank.__enter__()` zgłasza wyjątek.
+  Execution flow
+  1. `Database.enter()` -> Success -> `Database.__exit__()` zostaje zarejestrowane w ExitStack.
+  2. `APIConnection.enter()` -> Success -> `APIConnection.__exit__()` zostaje zarejestrowane w ExitStack.
+  3. `DataSource.enter()` -> ConnectionError -> `DataSource.__exit__()` nie zostaje zarejestrowane.
+  4. `ExitStack.exit()` -> Executed -> Python opuszcza zewnętrzny blok with i wywołuje `ExitStack.__exit__()`.
+  5. `APIConnection.exit()` -> Zwalnia zasób.
+  6. `Database.exit()` -> Zwalnia zasób.
+
+ Kluczowe rozróżnienie
+| Metoda | Czy zostanie wykonana? |
+| - | - |
+| `ExitStack.__exit__()` |	Tak |
+| `APIConnection.__exit__()` |	Tak |
+| `Database.__exit__()`	| Tak |
+| `DataSource.__exit__()`	| Nie |
+
+Ponieważ `ExitStack.__exit__()` jest już częścią zewnętrznego bloku with. Jego wykonanie nie zależy od tego, czy wszystkie zasoby zostały poprawnie pozyskane.
+
+Natomiast `DataSource.__exit__()` nie zostało zarejestrowane, ponieważ `DataSource.__enter__()` zakończyło się wyjątkiem.
+
+Zapamiętaj: `ExitStack` zarządza własnym lifecycle niezależnie od powodzenia inicjalizacji każdego kolejnego zasobu.
+
+To właśnie jest mechanizm zapewniający bezpieczeństwo wcześniej pozyskanych zasobów.
