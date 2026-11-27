@@ -38,7 +38,7 @@ class APIConnection:
         print("Disconnecting from API")
 ```
 
-Możemy używać ich zagnieżdżając instrukcje `with`:
+Możemy używać ich zagnieżdżając instrukcje / nested `with`:
 
 ```python
 with Database() as db:
@@ -201,3 +201,5 @@ Natomiast `DataSource.__exit__()` nie zostało zarejestrowane, ponieważ `DataSo
 Zapamiętaj: `ExitStack` zarządza własnym lifecycle niezależnie od powodzenia inicjalizacji każdego kolejnego zasobu.
 
 To właśnie jest mechanizm zapewniający bezpieczeństwo wcześniej pozyskanych zasobów.
+
+**Najważniejszy wniosek z Exercise 118:** ExitStack gwarantuje próbę wykonania wszystkich zarejestrowanych operacji cleanup. Błąd podczas jednej operacji cleanup nie blokuje pozostałych. To istotna właściwość przy zarządzaniu wieloma zasobami.

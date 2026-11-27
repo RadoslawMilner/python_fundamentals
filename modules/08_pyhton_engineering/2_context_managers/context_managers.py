@@ -817,3 +817,156 @@ with ExitStack() as stack:
 
 # Warto to zapamiętać przy projektowaniu niezawodnych systemów.
 
+# Exercise 118 — Multiple exceptions in ExitStack
+class DataSource:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        print(f"Connecting to {self.name}")
+
+        if self.name == "bank_api":
+            raise ConnectionError("Bank API unavailable")
+
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(f"Disconnecting from {self.name}")
+
+        if self.name == "inflation_api":
+            raise RuntimeError("Failed to disconnect inflation API")
+
+    def fetch(self):
+        print(f"Fetching from {self.name}")
+
+from contextlib import ExitStack
+
+sources = [
+    "exchange_api",
+    "inflation_api",
+    "bank_api"
+]
+
+with ExitStack() as stack:
+    connections = []
+
+    for source in sources:
+        ds = DataSource(source)
+        connection = stack.enter_context(ds)
+        connections.append(connection)
+
+    for connection in connections:
+        connection.fetch()
+
+# output:
+# Connecting to exchange_api
+# Connecting to inflation_api
+# Connecting to bank_api
+# Disconnecting from inflation_api
+# Disconnecting from exchange_api
+# Traceback (most recent call last):
+#   ...
+# ConnectionError: Bank API unavailable
+
+# During handling of the above exception, another exception occurred:
+
+# Traceback (most recent call last):
+#   ...
+# RuntimeError: Failed to disconnect inflation API
+
+# 1. Czy exchange_api.__exit__() zostanie wykonane mimo RuntimeError z inflation_api.__exit__()?
+# Tak. ExitStack nie przerywa wykonywania pozostałych callbacków tylko dlatego, że jeden z nich zgłosił wyjątek.
+
+# Kolejność:
+# 1. bank_api.__enter__() zgłasza ConnectionError.
+# 2. ExitStack rozpoczyna cleanup.
+# 3. inflation_api.__exit__() zgłasza RuntimeError.
+# 4. ExitStack nadal wykonuje exchange_api.__exit__().
+# 5. Po zakończeniu cleanup propaguje końcowy wyjątek.
+# Ważne: nie dlatego, że każdy __exit__() musi zawsze zostać wykonany. W tym przypadku dlatego, że ExitStack został zaprojektowany tak, aby wykonać wszystkie zarejestrowane callbacki, nawet jeśli jeden z nich zgłosi wyjątek.
+
+# 2–4. Propagacja i __context__
+# Zgadza się:
+# - RuntimeError ostatecznie opuszcza ExitStack.
+# - ConnectionError nie zostaje utracony.
+# - Jest dostępny przez RuntimeError.__context__.
+# - Python pokaże oba wyjątki w tracebacku, z informacją, że drugi wystąpił podczas obsługi pierwszego.
+# __context__ zachowuje kontekst wyjątku, który był obsługiwany w momencie zgłoszenia nowego wyjątku. To mechanizm diagnostyczny, a nie osobny mechanizm propagacji.
+
+# 5. Czy fetch() zostanie wykonane?
+# Nie. Pętla fetch() nie zostanie osiągnięta, ponieważ wyjątek z enter_context() przerywa pierwszą pętlę.
+
+# Exercise 119 - ExitStack vs nested with
+class DataSource:
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        print(f"Connecting to {self.name}")
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        print(f"Disconnecting from {self.name}")
+
+    def fetch(self):
+        print(f"Fetching from {self.name}")
+
+# Analiza: Variant A - nested with:
+with DataSource("exchange_api") as exchange:
+    with DataSource("inflation_api") as inflation:
+        with DataSource("bank_api") as bank:
+            exchange.fetch()
+            inflation.fetch()
+            bank.fetch()
+
+# Analiza: Variant B - ExitStack:
+from contextlib import ExitStack
+
+sources = ["exchange_api", "inflation_api", "bank_api"]
+
+with ExitStack() as stack:
+    connections = []
+
+    for source in sources:
+        connection = stack.enter_context(DataSource(source))
+        connections.append(connection)
+
+    for connection in connections:
+        connection.fetch()
+
+# 1. Czy kolejność Connecting i Disconnecting będzie identyczna w obu wariantach?
+# Tak. Poniewaz dla obu wariantow jest zastosowane LIFO.
+
+# 2. Czy kolejność fetch() będzie identyczna?
+# Nested with: kolejność wynika bezpośrednio z instrukcji.
+# ExitStack: kolejność wynika z iteracji po connections.
+
+# 3. Co stanie się, jeśli bank_api.__enter__() zgłosi ConnectionError? Które zasoby zostaną zamknięte w każdym wariancie?
+# W obu wariantach exchange_api i inflation_api zostaną zamknięte.
+# Istotny szczegół: bank_api.__exit__() nie zostanie wywołane, ponieważ jego __enter__() nie zakończyło się sukcesem.
+
+# 4. Jaka jest zasadnicza różnica między tymi rozwiązaniami, skoro oba zapewniają cleanup w odwrotnej kolejności?
+# ExitStack nie jest po prostu bardziej abstrakcyjnym zamiennikiem with. Rozwiązuje konkretny problem — dynamiczne zarządzanie cyklem życia wielu zasobów.
+
+# Exercise 120 — Context Managers: final checkpoint
+class ManagedConnection:
+    def __enter__(self):
+        print('Connecting to...')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if issubclass(exc_type, ConnectionError):
+            print('ROLLBACK ')
+
+        else:
+            print('COMMIT ')
+        
+        print('Disconnecting from...')
+
+# Variant A - error-free
+with ManagedConnection() as project:
+    pass
+
+# Variant B - error
+with ManagedConnection() as project:
+    raise ConnectionError
